@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/cilium/ebpf"
-	"github.com/cilium/ebpf/btf"
 	"github.com/go-kit/log/level"
 	"github.com/grafana/pyroscope/ebpf/pyrobpf"
 	"github.com/grafana/pyroscope/ebpf/python"
@@ -107,8 +106,6 @@ func (s *session) getPyPerf(cause *sd.Target) *python.Perf {
 }
 
 func (s *session) loadPyPerf(cause *sd.Target) (*python.Perf, error) {
-	defer btf.FlushKernelSpec() // save some memory
-
 	opts := &ebpf.CollectionOptions{
 		Programs: s.progOptions(),
 		MapReplacements: map[string]*ebpf.Map{
@@ -124,15 +121,13 @@ func (s *session) loadPyPerf(cause *sd.Target) (*python.Perf, error) {
 	if err != nil {
 		return nil, fmt.Errorf("unable to get pid namespace %w", err)
 	}
-	err = spec.RewriteConstants(map[string]interface{}{
-		"global_config": python.PerfGlobalConfigT{
-			BpfLogErr:   boolToU8(s.pythonBPFErrorLogEnabled(cause)),
-			BpfLogDebug: boolToU8(s.pythonBPFDebugLogEnabled(cause)),
-			NsPidIno:    nsIno,
-		},
+	err = setGlobalConfig(spec, python.PerfGlobalConfigT{
+		BpfLogErr:   boolToU8(s.pythonBPFErrorLogEnabled(cause)),
+		BpfLogDebug: boolToU8(s.pythonBPFDebugLogEnabled(cause)),
+		NsPidIno:    nsIno,
 	})
 	if err != nil {
-		return nil, fmt.Errorf("pyperf rewrite constants %w", err)
+		return nil, fmt.Errorf("pyperf set global config %w", err)
 	}
 	if s.options.BPFMapsOptions.SymbolsMapSize != 0 {
 		spec.Maps[python.MapNameSymbols].MaxEntries = s.options.BPFMapsOptions.SymbolsMapSize

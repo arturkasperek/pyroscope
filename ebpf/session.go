@@ -18,7 +18,6 @@ import (
 	"syscall"
 
 	"github.com/cilium/ebpf"
-	"github.com/cilium/ebpf/btf"
 	"github.com/cilium/ebpf/link"
 	"github.com/cilium/ebpf/perf"
 	"github.com/go-kit/log"
@@ -173,13 +172,11 @@ func (s *session) Start() error {
 		if err != nil {
 			return fmt.Errorf("unable to get pid namespace %w", err)
 		}
-		err = spec.RewriteConstants(map[string]interface{}{
-			"global_config": pyrobpf.ProfileGlobalConfigT{
-				NsPidIno: nsIno,
-			},
+		err = setGlobalConfig(spec, pyrobpf.ProfileGlobalConfigT{
+			NsPidIno: nsIno,
 		})
 		if err != nil {
-			return fmt.Errorf("pyrobpf rewrite constants %w", err)
+			return fmt.Errorf("pyrobpf set global config %w", err)
 		}
 	}
 	err = spec.LoadAndAssign(&s.bpf, opts)
@@ -188,8 +185,6 @@ func (s *session) Start() error {
 		s.stopLocked()
 		return fmt.Errorf("load bpf objects: %w", err)
 	}
-
-	btf.FlushKernelSpec() // save some memory
 
 	eventsReader, err := perf.NewReader(s.bpf.ProfileMaps.Events, 4*os.Getpagesize())
 	if err != nil {
@@ -951,4 +946,14 @@ func getPIDNamespace() (dev uint64, ino uint64, err error) {
 		return st.Dev, st.Ino, nil
 	}
 	return 0, 0, fmt.Errorf("could not determine pid namespace")
+}
+
+// setGlobalConfig sets the const volatile global_config of a BPF program before
+// it is loaded.
+func setGlobalConfig(spec *ebpf.CollectionSpec, config any) error {
+	variable, ok := spec.Variables["global_config"]
+	if !ok {
+		return fmt.Errorf("no global_config variable in the BPF program")
+	}
+	return variable.Set(config)
 }
